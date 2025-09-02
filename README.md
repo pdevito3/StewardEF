@@ -47,4 +47,3 @@ The squash command combines all existing migrations into a single, consolidated 
 Depending on how your migrations were structured, you might need to make some manual adjustments after running squash. Some things to watch for:
 
 - Private Fields: If any private readonly fields or other member data are in your migrations, ensure they're properly defined in the combined migration file.
-- Variable Conflicts: Sometimes migrations contain variables with the same name across different files. Double-check the final file for duplicate variables and resolve them accordingly.
