@@ -5,6 +5,8 @@ using Spectre.Console;
 
 internal static class VersionChecker
 {
+    private const string DefaultVersion = "0.0.0";
+
     public static async Task CheckForLatestVersion()
     {
         try
@@ -22,7 +24,7 @@ internal static class VersionChecker
             // fail silently
         }
     }
-    
+
     private static async Task<string> GetLatestReleaseVersion()
     {
         var latestCraftsmanPath = "https://github.com/pdevito3/stewardef/releases/latest";
@@ -33,13 +35,13 @@ internal static class VersionChecker
         response.EnsureSuccessStatusCode();
 
         var redirectUrl = response?.RequestMessage?.RequestUri;
-        var version = redirectUrl?.ToString().Split('/').Last().Replace("v", "");
+        var version = redirectUrl?.ToString().Split('/').Last().Replace("v", "") ?? DefaultVersion;
         return version;
     }
 
     private static string GetInstalledStewardEfVersion()
     {
-        var installedVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+        var installedVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? DefaultVersion;
         installedVersion = installedVersion[0..^2]; // equivalent to installedVersion.Substring(0, installedVersion.Length - 2);
 
         return installedVersion;

@@ -132,7 +132,7 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
 
     private class AggregatedMethodResult
     {
-        public string AggregatedContent { get; set; }
+        public string AggregatedContent { get; set; } = null!;
         public HashSet<string> UsingStatements { get; set; } = [];
     }
 
@@ -161,8 +161,10 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
             var methodContent = ExtractMethodContent(migrationLines, methodName);
             if (!string.IsNullOrEmpty(methodContent))
             {
+                aggregatedContent.AppendLine("{");
                 aggregatedContent.AppendLine($"// {fileName}");
                 aggregatedContent.AppendLine(methodContent);
+                aggregatedContent.AppendLine("}");
                 aggregatedContent.AppendLine();
             }
         }
