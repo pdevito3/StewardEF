@@ -19,7 +19,7 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         public string? TargetMigration { get; set; } // Added target migration option
     }
 
-    public override int Execute(CommandContext context, Settings settings)
+    public override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
         var directory = settings.MigrationsDirectory
                         ?? AnsiConsole.Ask<string>("[green]Enter the migrations directory path:[/]");
