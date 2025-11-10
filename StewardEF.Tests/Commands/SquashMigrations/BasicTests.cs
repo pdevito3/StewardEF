@@ -40,7 +40,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(1);
@@ -59,7 +59,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(1);
@@ -79,7 +79,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -103,7 +103,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -131,7 +131,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -156,7 +156,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -182,7 +182,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -212,7 +212,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -236,7 +236,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -267,7 +267,7 @@ public class BasicTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);

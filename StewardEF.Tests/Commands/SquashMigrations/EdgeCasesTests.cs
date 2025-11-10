@@ -43,7 +43,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -80,7 +80,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -110,7 +110,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -145,7 +145,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -177,7 +177,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -208,7 +208,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -232,7 +232,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -264,7 +264,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0); // Should not crash
@@ -285,7 +285,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -310,7 +310,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0);
@@ -341,7 +341,7 @@ public class EdgeCasesTests : IDisposable
         var context = new CommandContext([], remainingArgs, "test", null);
 
         // Act
-        var result = command.Execute(context, settings);
+        var result = command.Execute(context, settings, CancellationToken.None);
 
         // Assert
         result.ShouldBe(0); // Should succeed but do nothing
