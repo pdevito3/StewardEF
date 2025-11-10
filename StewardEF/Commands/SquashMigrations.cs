@@ -107,11 +107,16 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         if (latestDesignerFile != null)
         {
             var newDesignerFileName = Path.Combine(directory, Path.GetFileNameWithoutExtension(firstMigrationFile) + ".Designer.cs");
-            if (File.Exists(newDesignerFileName))
+
+            // Only move if the designer file is different
+            if (!string.Equals(latestDesignerFile, newDesignerFileName, StringComparison.OrdinalIgnoreCase))
             {
-                File.Delete(newDesignerFileName);
+                if (File.Exists(newDesignerFileName))
+                {
+                    File.Delete(newDesignerFileName);
+                }
+                File.Move(latestDesignerFile, newDesignerFileName);
             }
-            File.Move(latestDesignerFile, newDesignerFileName);
 
             // Update the class name and migration attribute in the designer file
             UpdateDesignerFile(newDesignerFileName, firstMigrationFile);

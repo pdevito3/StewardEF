@@ -1,6 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
+# 
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StewardEF", "StewardEF\StewardEF.csproj", "{46C3A2BD-D514-4E53-BA88-0CBA30F2377C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "StewardEF.Tests", "StewardEF.Tests\StewardEF.Tests.csproj", "{4F9EB72E-F4C3-40A6-A9E9-33EE0D804988}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -12,5 +15,9 @@ Global
 		{46C3A2BD-D514-4E53-BA88-0CBA30F2377C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{46C3A2BD-D514-4E53-BA88-0CBA30F2377C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{46C3A2BD-D514-4E53-BA88-0CBA30F2377C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4F9EB72E-F4C3-40A6-A9E9-33EE0D804988}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4F9EB72E-F4C3-40A6-A9E9-33EE0D804988}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4F9EB72E-F4C3-40A6-A9E9-33EE0D804988}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4F9EB72E-F4C3-40A6-A9E9-33EE0D804988}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
