@@ -202,6 +202,7 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         var methodContent = new StringBuilder();
         int braceLevel = 0;
         bool methodStarted = false;
+        var braceCounter = new BraceCounter();
 
         // Start from the method signature line
         for (int i = methodStartIndex; i < lines.Length; i++)
@@ -214,7 +215,7 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
                 if (line.Contains("{"))
                 {
                     methodStarted = true;
-                    braceLevel += line.Count(c => c == '{') - line.Count(c => c == '}');
+                    braceLevel += braceCounter.CountBraces(line);
 
                     // Capture the content after the opening brace on the same line
                     int braceIndex = line.IndexOf('{');
@@ -230,7 +231,7 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
             }
             else
             {
-                braceLevel += line.Count(c => c == '{') - line.Count(c => c == '}');
+                braceLevel += braceCounter.CountBraces(line);
 
                 if (braceLevel == 0)
                 {
@@ -245,6 +246,114 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         }
 
         return methodContent.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Helper class to count braces while respecting C# syntax contexts
+    /// (strings, comments, character literals). Maintains state across multiple lines
+    /// for multi-line strings and comments.
+    /// </summary>
+    private class BraceCounter
+    {
+        private bool _inVerbatimString = false;
+        private bool _inMultiLineComment = false;
+
+        public int CountBraces(string line)
+        {
+            int count = 0;
+            bool inString = false;
+            bool inChar = false;
+            bool inSingleLineComment = false;
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                char next = i + 1 < line.Length ? line[i + 1] : '\0';
+                char prev = i > 0 ? line[i - 1] : '\0';
+
+                // Handle multi-line comment state (carries across lines)
+                if (_inMultiLineComment)
+                {
+                    if (c == '*' && next == '/')
+                    {
+                        _inMultiLineComment = false;
+                        i++; // Skip the '/'
+                    }
+                    continue;
+                }
+
+                // Handle verbatim string state (carries across lines)
+                if (_inVerbatimString)
+                {
+                    if (c == '"')
+                    {
+                        // Check for escaped quote in verbatim string ("")
+                        if (next == '"')
+                        {
+                            i++; // Skip the escaped quote
+                            continue;
+                        }
+                        else
+                        {
+                            _inVerbatimString = false;
+                        }
+                    }
+                    continue;
+                }
+
+                // Check for multi-line comment start
+                if (!inString && !inChar && !inSingleLineComment && c == '/' && next == '*')
+                {
+                    _inMultiLineComment = true;
+                    i++; // Skip the '*'
+                    continue;
+                }
+
+                // Check for single-line comment start
+                if (!inString && !inChar && c == '/' && next == '/')
+                {
+                    inSingleLineComment = true;
+                    break; // Rest of line is comment
+                }
+
+                // Check for verbatim string start
+                if (!inString && !inChar && !inSingleLineComment && c == '@' && next == '"')
+                {
+                    _inVerbatimString = true;
+                    i++; // Skip the '"'
+                    continue;
+                }
+
+                // Check for regular string start/end
+                if (!inChar && !inSingleLineComment && c == '"' && prev != '\\')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                // Check for char literal start/end
+                if (!inString && !inSingleLineComment && c == '\'' && prev != '\\')
+                {
+                    inChar = !inChar;
+                    continue;
+                }
+
+                // Count braces only when in normal code (not in strings, chars, or comments)
+                if (!inString && !inChar && !inSingleLineComment && !_inVerbatimString && !_inMultiLineComment)
+                {
+                    if (c == '{')
+                    {
+                        count++;
+                    }
+                    else if (c == '}')
+                    {
+                        count--;
+                    }
+                }
+            }
+
+            return count;
+        }
     }
 
     private static IEnumerable<string> ExtractUsingStatements(string[] lines)
@@ -392,15 +501,34 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
     {
         var designerContent = File.ReadAllText(designerFilePath);
         var firstMigrationFileName = Path.GetFileNameWithoutExtension(firstMigrationFilePath);
-        var className = firstMigrationFileName.Split('_').Last().Replace(" ", string.Empty); ;
+
+        // Extract class name from migration filename
+        // Format: YYYYMMDDHHMMSS_MigrationName
+        // Extract everything after the 14-digit timestamp and underscore
+        var className = ExtractMigrationClassName(firstMigrationFileName);
 
         // Replace the Migration attribute
         designerContent = Regex.Replace(designerContent, @"\[Migration\(""[^""]*""\)\]", $"[Migration(\"{firstMigrationFileName}\")]");
 
-        // Replace the class name
-        designerContent = Regex.Replace(designerContent, @"partial class \w+", $"partial class {className}");
+        // Replace the class name - need to handle names with underscores
+        designerContent = Regex.Replace(designerContent, @"partial class [\w_]+", $"partial class {className}");
 
 
         File.WriteAllText(designerFilePath, designerContent);
+    }
+
+    private static string ExtractMigrationClassName(string migrationFileName)
+    {
+        // EF migration format: YYYYMMDDHHMMSS_MigrationName
+        // The timestamp is always 14 digits followed by underscore
+        // Migration name can contain underscores (e.g., Add_User_Table)
+        var match = Regex.Match(migrationFileName, @"^\d{14}_(.+)$");
+        if (match.Success)
+        {
+            return match.Groups[1].Value;
+        }
+
+        // Fallback to old behavior if format doesn't match
+        return migrationFileName.Split('_').Last().Replace(" ", string.Empty);
     }
 }
