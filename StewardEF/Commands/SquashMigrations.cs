@@ -2,6 +2,7 @@ namespace StewardEF.Commands;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -78,11 +79,10 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         // Get the first migration file
         var firstMigrationFile = migrationFiles.First();
 
-        // Get aggregated Up and Down contents with using statements
+        // STEP 1: Always do standard C# code squashing first
         var upResult = GetAggregatedMethodContent(migrationFiles, "Up", collectUsings: true);
         var downResult = GetAggregatedMethodContent(migrationFiles.AsEnumerable().Reverse(), "Down", collectUsings: true);
 
-        // Insert the aggregated content into the first migration file
         var firstMigrationLines = File.ReadAllLines(firstMigrationFile).ToList();
 
         ReplaceMethodContent(firstMigrationLines, "Up", upResult.AggregatedContent);
@@ -95,19 +95,17 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         }
         UpdateUsingStatements(firstMigrationLines, allUsingStatements);
 
-        // Write the updated content back to the first migration file
         File.WriteAllLines(firstMigrationFile, firstMigrationLines);
 
-        // Identify the latest designer file
+        // STEP 2: Update designer file
         var latestDesignerFile = migrationFiles
             .Where(f => Path.GetFileName(f).EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase))
             .LastOrDefault();
 
-        // Rename the latest designer file to match the first migration file
+        var newDesignerFileName = Path.Combine(directory, Path.GetFileNameWithoutExtension(firstMigrationFile) + ".Designer.cs");
+
         if (latestDesignerFile != null)
         {
-            var newDesignerFileName = Path.Combine(directory, Path.GetFileNameWithoutExtension(firstMigrationFile) + ".Designer.cs");
-
             // Only move if the designer file is different
             if (!string.Equals(latestDesignerFile, newDesignerFileName, StringComparison.OrdinalIgnoreCase))
             {
@@ -120,18 +118,59 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
 
             // Update the class name and migration attribute in the designer file
             UpdateDesignerFile(newDesignerFileName, firstMigrationFile);
-
         }
 
-        // Delete subsequent migration files, except the first migration and its designer file
+        // STEP 3: Delete other migration files
         var filesToDelete = migrationFiles.Skip(2).ToList();
-
         foreach (var file in filesToDelete)
         {
             File.Delete(file);
         }
 
         AnsiConsole.MarkupLine($"[green]Migrations squashed successfully! {Emoji.Known.Sparkles}[/]");
+
+        // STEP 4: Check if the squashed migration has rename operations
+        if (HasProblematicRenameOperations(new[] { firstMigrationFile }))
+        {
+            AnsiConsole.MarkupLine("[yellow]⚠ Detected rename operations in squashed migration[/]");
+            AnsiConsole.MarkupLine("[yellow]Converting to SQL script format...[/]");
+
+            // Try to find the project file
+            var projectPath = FindProjectFile(directory);
+            if (projectPath != null)
+            {
+                AnsiConsole.MarkupLine($"[dim]Found project: {Path.GetFileName(projectPath)}[/]");
+
+                // Generate SQL from the squashed migration
+                var migrationId = ExtractMigrationId(newDesignerFileName);
+                if (migrationId != null)
+                {
+                    var upSql = ExecuteEfScript("0", migrationId, projectPath);
+                    var downSql = ExecuteEfScript(migrationId, "0", projectPath);
+
+                    if (upSql != null && downSql != null)
+                    {
+                        ReplaceWithSqlScript(firstMigrationFile, upSql, downSql);
+                        AnsiConsole.MarkupLine("[green]✓ Successfully converted to SQL format[/]");
+                    }
+                    else
+                    {
+                        AnsiConsole.MarkupLine("[yellow]⚠ Failed to generate SQL scripts[/]");
+                        AnsiConsole.MarkupLine("[yellow]Squashed migration kept in C# format (may have issues on fresh database)[/]");
+                    }
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[yellow]⚠ Could not extract migration ID[/]");
+                    AnsiConsole.MarkupLine("[yellow]Squashed migration kept in C# format (may have issues on fresh database)[/]");
+                }
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Could not find project file for SQL generation[/]");
+                AnsiConsole.MarkupLine("[yellow]Squashed migration kept in C# format (may have issues on fresh database)[/]");
+            }
+        }
     }
 
 
@@ -507,8 +546,8 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         // Extract everything after the 14-digit timestamp and underscore
         var className = ExtractMigrationClassName(firstMigrationFileName);
 
-        // Replace the Migration attribute
-        designerContent = Regex.Replace(designerContent, @"\[Migration\(""[^""]*""\)\]", $"[Migration(\"{firstMigrationFileName}\")]");
+        // Replace the Migration attribute (allow optional whitespace)
+        designerContent = Regex.Replace(designerContent, @"\[Migration\(\s*""[^""]*""\s*\)\]", $"[Migration(\"{firstMigrationFileName}\")]");
 
         // Replace the class name - need to handle names with underscores
         designerContent = Regex.Replace(designerContent, @"partial class [\w_]+", $"partial class {className}");
@@ -530,5 +569,153 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
 
         // Fallback to old behavior if format doesn't match
         return migrationFileName.Split('_').Last().Replace(" ", string.Empty);
+    }
+
+    internal static bool HasProblematicRenameOperations(IEnumerable<string> migrationFiles)
+    {
+        foreach (var file in migrationFiles)
+        {
+            // Skip Designer files
+            if (file.EndsWith(".Designer.cs", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var content = File.ReadAllText(file);
+
+            // Check for rename operations that could cause issues with squashing
+            if (content.Contains("RenameColumn") ||
+                content.Contains("RenameTable") ||
+                content.Contains("RenameIndex"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal static string? FindProjectFile(string migrationsDirectory, string? explicitProjectPath = null)
+    {
+        // If explicitly provided, validate and return
+        if (!string.IsNullOrWhiteSpace(explicitProjectPath))
+        {
+            if (File.Exists(explicitProjectPath) && explicitProjectPath.EndsWith(".csproj"))
+            {
+                return Path.GetFullPath(explicitProjectPath);
+            }
+            AnsiConsole.MarkupLine($"[yellow]Warning: Specified project file not found: {explicitProjectPath}[/]");
+        }
+
+        // Search up the directory tree for a .csproj file
+        var currentDir = new DirectoryInfo(Path.GetFullPath(migrationsDirectory));
+
+        while (currentDir != null)
+        {
+            var projectFiles = currentDir.GetFiles("*.csproj");
+            if (projectFiles.Length > 0)
+            {
+                // If multiple .csproj files, try to pick the most likely one
+                var projectFile = projectFiles.Length == 1
+                    ? projectFiles[0]
+                    : projectFiles.FirstOrDefault(f => !f.Name.Contains(".Tests")) ?? projectFiles[0];
+
+                return projectFile.FullName;
+            }
+
+            currentDir = currentDir.Parent;
+        }
+
+        return null;
+    }
+
+    internal static string? ExtractMigrationId(string designerFilePath)
+    {
+        if (!File.Exists(designerFilePath))
+            return null;
+
+        var content = File.ReadAllText(designerFilePath);
+
+        // Extract migration ID from [Migration("20231201123456_MigrationName")] attribute
+        // Allow optional whitespace around the string parameter
+        var match = Regex.Match(content, @"\[Migration\(\s*""([^""]+)""\s*\)\]");
+        if (match.Success)
+        {
+            return match.Groups[1].Value;
+        }
+
+        return null;
+    }
+
+    private static string? ExecuteEfScript(string fromMigration, string toMigration, string projectPath)
+    {
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "dotnet",
+                Arguments = $"ef migrations script {fromMigration} {toMigration} --project \"{projectPath}\" --no-build",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                AnsiConsole.MarkupLine("[red]Failed to start dotnet ef process[/]");
+                return null;
+            }
+
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                AnsiConsole.MarkupLine($"[red]dotnet ef script failed: {error}[/]");
+                return null;
+            }
+
+            return output;
+        }
+        catch (Exception ex)
+        {
+            AnsiConsole.MarkupLine($"[red]Error executing dotnet ef: {ex.Message}[/]");
+            return null;
+        }
+    }
+
+    private static void ReplaceWithSqlScript(string migrationFilePath, string upSql, string downSql)
+    {
+        var lines = File.ReadAllLines(migrationFilePath).ToList();
+
+        // Find the Up method and replace it
+        var upMethodSignature = "protected override void Up(MigrationBuilder migrationBuilder)";
+        var upMethodIndex = -1;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].Contains(upMethodSignature))
+            {
+                upMethodIndex = i;
+                break;
+            }
+        }
+
+        if (upMethodIndex != -1)
+        {
+            var indentation = GetIndentation(lines[upMethodIndex]);
+            var upSqlContent = $@"        migrationBuilder.Sql(@""
+{upSql.Replace("\"", "\"\"")}        "");";
+
+            ReplaceMethodContent(lines, "Up", upSqlContent);
+        }
+
+        // Find the Down method and replace it
+        var downSqlContent = $@"        migrationBuilder.Sql(@""
+{downSql.Replace("\"", "\"\"")}        "");";
+
+        ReplaceMethodContent(lines, "Down", downSqlContent);
+
+        File.WriteAllLines(migrationFilePath, lines);
     }
 }

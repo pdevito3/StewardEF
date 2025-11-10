@@ -55,11 +55,88 @@ steward squash path/to/migrations -t AddUserTable
 
 The squash command combines all existing migrations into a single, consolidated migration file. Here's how it works:
 
-- Combines Migration Methods: Aggregates the Up and Down methods across all migration files.
-- Retains Important Using Statements: Collects using statements from all migrations, ensuring no dependencies are missed.
-- Preserves the First Migration: Inserts the combined code into the first migration file in the specified directory.
-- Removes Redundant Files: Deletes all migrations except the first one, leaving a single, squashed migration.
+1. **C# Aggregation**: Combines the Up and Down methods across all migration files using standard C# code concatenation
+2. **Using Statements**: Collects using statements from all migrations, ensuring no dependencies are missed
+3. **Designer File Update**: Renames the latest designer file to match the first migration and updates its metadata
+4. **Cleanup**: Deletes all intermediate migrations, leaving only the squashed first migration
+5. **Automatic Rename Detection** (post-squash): Scans the squashed result for rename operations (`RenameColumn`, `RenameTable`, `RenameIndex`)
+6. **SQL Conversion** (if needed): If rename operations are detected, automatically converts the squashed migration to SQL format
+   > *Why?* When EF executes rename operations, it needs the designer file to validate that the column/table exists and determine its type. If a column is renamed then later dropped, the final designer snapshot won't contain it, causing "could not be found in target model" errors. Converting to SQL captures the correct schema transformations without relying on designer metadata.
 
-Depending on how your migrations were structured, you might need to make some manual adjustments after running squash. Some things to watch for:
+##### Handling Rename Operations
 
-- Private Fields: If any private readonly fields or other member data are in your migrations, ensure they're properly defined in the combined migration file.
+When the squash command detects rename operations in the squashed migration, you'll see output like this:
+
+```
+Squashing 15 migration files...
+Migrations squashed successfully! ✨
+⚠ Detected rename operations in squashed migration
+Converting to SQL script format...
+Found project: MyApp.csproj
+✓ Successfully converted to SQL format
+```
+
+The tool automatically:
+1. Squashes migrations normally using C# code concatenation
+2. Checks the squashed result for problematic rename operations
+3. If found, locates your `.csproj` file (searches up the directory tree)
+4. Generates SQL scripts using `dotnet ef migrations script 0 <migration-id>`
+5. Replaces the squashed migration content with `migrationBuilder.Sql()` calls containing the generated SQL
+
+This approach solves the [common issue](https://github.com/pdevito3/StewardEF/issues/1) where squashed migrations fail with errors like "The column 'X' could not be found in target model" when columns are renamed then later dropped. By converting to SQL after squashing, the tool preserves the correct schema transformations without depending on intermediate designer files.
+
+##### Things to Watch For
+
+Depending on how your migrations were structured, you might need to make some manual adjustments after running squash:
+
+- **Private Fields**: If any private readonly fields or other member data are in your migrations, ensure they're properly defined in the combined migration file
+- **Custom C# Logic**: Complex data transformations or C# code beyond schema changes may not convert perfectly to SQL
+- **Testing**: Always test squashed migrations on a clean database to verify they work correctly
+
+---
+
+### `convert-to-sql`
+
+Converts an existing migration to use SQL scripts instead of C# code. This is useful when you need to manually convert a migration that has rename operations or other issues that would benefit from SQL representation.
+
+#### **Usage:**
+
+```bash
+steward convert-to-sql path/to/migrations [-p project-path] [-m migration-name]
+```
+
+##### Options
+
+- `[MigrationsDirectory]`: Path to the directory containing your EF migrations. If omitted, you'll be prompted to enter it interactively.
+- `-p|--project`: Optional. Explicit path to your `.csproj` file. If omitted, the tool will search up the directory tree.
+- `-m|--migration`: Optional. Name of the specific migration to convert (without .cs extension). If omitted, converts the most recent migration.
+
+##### Examples
+
+```bash
+# Convert the most recent migration
+steward convert-to-sql path/to/migrations
+
+# Convert with explicit project path
+steward convert-to-sql path/to/migrations -p path/to/MyProject.csproj
+
+# Convert a specific migration
+steward convert-to-sql path/to/migrations -m AddUserTable
+steward convert-to-sql path/to/migrations -m 20231201000000_AddUserTable
+```
+
+#### **How It Works**
+
+The convert-to-sql command:
+
+1. Locates the specified migration (or most recent if not specified)
+2. Finds the associated `.Designer.cs` file to extract the migration ID
+3. Uses `dotnet ef migrations script` to generate SQL for the Up and Down methods
+4. Replaces the migration's C# code with `migrationBuilder.Sql()` calls containing the generated SQL
+
+This is particularly useful for:
+- **Fixing problematic migrations** after they've been created
+- **Converting migrations** that will be deployed to production via SQL scripts
+- **Working around EF limitations** with rename operations in complex scenarios
+
+> **Note**: This command requires the `dotnet ef` tools to be installed and your project to be buildable.
