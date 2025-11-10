@@ -24,14 +24,30 @@ Squashes EF migrations into the first migration in the specified directory.
 #### **Usage:**
 
 ```bash
-steward squash -d path/to/migrations [-y year] [-t target]
+steward squash path/to/migrations [-y year] [-t migration-name]
 ```
 
 ##### Options
 
-- `-d (or [MigrationsDirectory])`: Path to the directory containing your EF migrations. If omitted, you'll be prompted to enter it interactively.
-- `-y (or [Year])`: Optional. Specify the year up to which migrations should be squashed. If omitted, all migrations will be squashed.
-- `-t (or [TargetMigration])`: Optional. Specify the target migration up to which migrations should be squashed. If omitted, all migrations will be squashed.
+- `[MigrationsDirectory]`: Path to the directory containing your EF migrations. If omitted, you'll be prompted to enter it interactively.
+- `-y|--year`: Optional. Specify the year up to which migrations should be squashed. If omitted, all migrations will be squashed.
+- `-t|--target`: Optional. Specify the target migration name (without .cs extension) up to which migrations should be squashed. Since EF Core migrations follow the pattern `YYYYMMDDHHMMSS_MigrationName.cs`, you can specify either the full name (e.g. "20230615000000_AddUserTable") or just part of it (e.g. "AddUserTable"). The matching is case-insensitive. If omitted, all migrations will be squashed.
+
+##### Examples
+
+```bash
+# Squash all migrations
+steward squash path/to/migrations
+
+# Squash migrations from 2023
+steward squash path/to/migrations -y 2023
+
+# Squash migrations up to a specific migration (using full name)
+steward squash path/to/migrations -t 20230615000000_AddUserTable
+
+# Squash migrations up to a specific migration (using partial name)
+steward squash path/to/migrations -t AddUserTable
+```
 
 #### **How It Works**
 
