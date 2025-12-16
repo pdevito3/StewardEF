@@ -2,6 +2,7 @@ namespace StewardEF.Commands;
 
 using Spectre.Console;
 using Spectre.Console.Cli;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -17,7 +18,11 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         public int? Year { get; set; }
 
         [CommandOption("-t|--target")]
-        public string? TargetMigration { get; set; } // Added target migration option
+        public string? TargetMigration { get; set; }
+
+        [CommandOption("--skip-sql")]
+        [Description("Skip automatic SQL conversion for migrations with rename operations")]
+        public bool SkipSqlConversion { get; set; }
     }
 
     public override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
@@ -37,11 +42,11 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
             return 1;
         }
 
-        SquashMigrations(directory, settings.Year, settings.TargetMigration);
+        SquashMigrations(directory, settings.Year, settings.TargetMigration, settings.SkipSqlConversion);
         return 0;
     }
 
-    static void SquashMigrations(string directory, int? year, string? targetMigration)
+    static void SquashMigrations(string directory, int? year, string? targetMigration, bool skipSqlConversion)
     {
         // Get all .cs files including Designer.cs files
         var files = Directory.GetFiles(directory, "*.cs", SearchOption.TopDirectoryOnly)
@@ -132,6 +137,14 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         // STEP 4: Check if the squashed migration has rename operations
         if (HasProblematicRenameOperations(new[] { firstMigrationFile }))
         {
+            if (skipSqlConversion)
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Warning: Detected rename operations (RenameColumn, RenameTable, or RenameIndex) in squashed migration[/]");
+                AnsiConsole.MarkupLine("[yellow]  SQL conversion was skipped due to --skip-sql flag[/]");
+                AnsiConsole.MarkupLine("[yellow]  The squashed migration may have issues when applied to a fresh database[/]");
+                return;
+            }
+
             AnsiConsole.MarkupLine("[yellow]⚠ Detected rename operations in squashed migration[/]");
             AnsiConsole.MarkupLine("[yellow]Converting to SQL script format...[/]");
 

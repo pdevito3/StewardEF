@@ -32,6 +32,7 @@ steward squash path/to/migrations [-y year] [-t migration-name]
 - `[MigrationsDirectory]`: Path to the directory containing your EF migrations. If omitted, you'll be prompted to enter it interactively.
 - `-y|--year`: Optional. Specify the year up to which migrations should be squashed. If omitted, all migrations will be squashed.
 - `-t|--target`: Optional. Specify the target migration name (without .cs extension) up to which migrations should be squashed. Since EF Core migrations follow the pattern `YYYYMMDDHHMMSS_MigrationName.cs`, you can specify either the full name (e.g. "20230615000000_AddUserTable") or just part of it (e.g. "AddUserTable"). The matching is case-insensitive. If omitted, all migrations will be squashed.
+- `--skip-sql`: Optional. Skip automatic SQL conversion even if problematic rename operations are detected. A warning will be shown if rename-then-drop patterns are found. Use this if you want to keep the C# code format and handle any issues manually.
 
 ##### Examples
 
@@ -47,6 +48,9 @@ steward squash path/to/migrations -t 20230615000000_AddUserTable
 
 # Squash migrations up to a specific migration (using partial name)
 steward squash path/to/migrations -t AddUserTable
+
+# Squash migrations but skip SQL conversion (keep C# format)
+steward squash path/to/migrations --skip-sql
 ```
 
 #### **How It Works**
@@ -82,6 +86,21 @@ The tool automatically:
 3. If found, locates your `.csproj` file (searches up the directory tree)
 4. Generates SQL scripts using `dotnet ef migrations script 0 <migration-id>`
 5. Replaces the squashed migration content with `migrationBuilder.Sql()` calls containing the generated SQL
+
+**Skipping SQL Conversion**
+
+If you prefer to keep the C# format and handle any issues manually, use the `--skip-sql` flag:
+
+```bash
+steward squash path/to/migrations --skip-sql
+```
+
+When skipped, you'll see a warning if problematic patterns are detected:
+```
+⚠ Warning: Detected rename operations (RenameColumn, RenameTable, or RenameIndex) in squashed migration
+  SQL conversion was skipped due to --skip-sql flag
+  The squashed migration may have issues when applied to a fresh database
+```
 
 This approach solves the [common issue](https://github.com/pdevito3/StewardEF/issues/1) where squashed migrations fail with errors like "The column 'X' could not be found in target model" when columns are renamed then later dropped. By converting to SQL after squashing, the tool preserves the correct schema transformations without depending on intermediate designer files.
 

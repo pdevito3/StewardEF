@@ -21,7 +21,8 @@ app.Configure(config =>
         .WithExample(new[] { "squash", "path/to/migrations" })
         .WithExample(new[] { "squash", "path/to/migrations", "-y", "2023" })
         .WithExample(new[] { "squash", "path/to/migrations", "-t", "20230615000000_AddUserTable" })
-        .WithExample(new[] { "squash", "path/to/migrations", "-t", "AddUserTable" });
+        .WithExample(new[] { "squash", "path/to/migrations", "-t", "AddUserTable" })
+        .WithExample(new[] { "squash", "path/to/migrations", "--skip-sql" });
 
     config.AddCommand<ConvertToSqlCommand>("convert-to-sql")
         .WithDescription("Converts a migration to use SQL scripts instead of C# code.")
