@@ -18,7 +18,7 @@
         <PackageProjectUrl>https://github.com/pdevito3/StewardEF</PackageProjectUrl>
         <RepositoryType>git</RepositoryType>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
-        <Version>0.3.0</Version>
+        <Version>0.4.0</Version>
     </PropertyGroup>
 
     <ItemGroup>
