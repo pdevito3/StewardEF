@@ -18,8 +18,13 @@
         <PackageProjectUrl>https://github.com/pdevito3/StewardEF</PackageProjectUrl>
         <RepositoryType>git</RepositoryType>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
         <Version>0.4.0</Version>
     </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="..\README.md" Pack="true" PackagePath="" Visible="False" />
+    </ItemGroup>
 
     <ItemGroup>
       <InternalsVisibleTo Include="StewardEF.Tests" />
