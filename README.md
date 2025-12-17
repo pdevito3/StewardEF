@@ -15,6 +15,11 @@ Install the `StewardEF` dotnet tool:
 dotnet tool install -g StewardEF
 ```
 
+Or update it:
+```bash
+dotnet tool update -g StewardEF
+```
+
 ## Commands
 
 ### `squash`
