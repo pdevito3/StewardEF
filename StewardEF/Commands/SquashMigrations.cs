@@ -584,6 +584,11 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         return migrationFileName.Split('_').Last().Replace(" ", string.Empty);
     }
 
+    /// <summary>
+    /// Detects problematic rename operations where a renamed entity is subsequently dropped.
+    /// This pattern causes issues in squashed migrations because the drop references an entity
+    /// by its new name, but in a fresh database context, the rename history doesn't exist.
+    /// </summary>
     internal static bool HasProblematicRenameOperations(IEnumerable<string> migrationFiles)
     {
         foreach (var file in migrationFiles)
@@ -594,16 +599,196 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
 
             var content = File.ReadAllText(file);
 
-            // Check for rename operations that could cause issues with squashing
-            if (content.Contains("RenameColumn") ||
-                content.Contains("RenameTable") ||
-                content.Contains("RenameIndex"))
+            if (HasRenamedEntitySubsequentlyDropped(content))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if any renamed entity (column, table, or index) is subsequently dropped.
+    /// </summary>
+    private static bool HasRenamedEntitySubsequentlyDropped(string content)
+    {
+        // Check columns: RenameColumn followed by DropColumn for the same table.newName
+        var renamedColumns = FindRenamedColumns(content);
+        var droppedColumns = FindDroppedColumns(content);
+
+        foreach (var (table, newName, renamePos) in renamedColumns)
+        {
+            if (droppedColumns.Any(d =>
+                d.position > renamePos &&
+                string.Equals(d.table, table, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(d.name, newName, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        // Check tables: RenameTable followed by DropTable for the same newName
+        var renamedTables = FindRenamedTables(content);
+        var droppedTables = FindDroppedTables(content);
+
+        foreach (var (newName, renamePos) in renamedTables)
+        {
+            if (droppedTables.Any(d =>
+                d.position > renamePos &&
+                string.Equals(d.name, newName, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        // Check indexes: RenameIndex followed by DropIndex for the same newName
+        var renamedIndexes = FindRenamedIndexes(content);
+        var droppedIndexes = FindDroppedIndexes(content);
+
+        foreach (var (newName, renamePos) in renamedIndexes)
+        {
+            if (droppedIndexes.Any(d =>
+                d.position > renamePos &&
+                string.Equals(d.name, newName, StringComparison.OrdinalIgnoreCase)))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Finds all RenameColumn operations and extracts (table, newName, position).
+    /// </summary>
+    private static List<(string table, string newName, int position)> FindRenamedColumns(string content)
+    {
+        var results = new List<(string table, string newName, int position)>();
+        var pattern = @"\.RenameColumn\s*\(([\s\S]*?)\);";
+
+        foreach (Match match in Regex.Matches(content, pattern))
+        {
+            var args = match.Groups[1].Value;
+            var newNameMatch = Regex.Match(args, @"newName:\s*""([^""]+)""");
+            var tableMatch = Regex.Match(args, @"table:\s*""([^""]+)""");
+
+            if (newNameMatch.Success && tableMatch.Success)
+            {
+                results.Add((tableMatch.Groups[1].Value, newNameMatch.Groups[1].Value, match.Index));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finds all DropColumn operations and extracts (table, name, position).
+    /// </summary>
+    private static List<(string table, string name, int position)> FindDroppedColumns(string content)
+    {
+        var results = new List<(string table, string name, int position)>();
+        var pattern = @"\.DropColumn\s*\(([\s\S]*?)\);";
+
+        foreach (Match match in Regex.Matches(content, pattern))
+        {
+            var args = match.Groups[1].Value;
+            var nameMatch = Regex.Match(args, @"name:\s*""([^""]+)""");
+            var tableMatch = Regex.Match(args, @"table:\s*""([^""]+)""");
+
+            if (nameMatch.Success && tableMatch.Success)
+            {
+                results.Add((tableMatch.Groups[1].Value, nameMatch.Groups[1].Value, match.Index));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finds all RenameTable operations and extracts (newName, position).
+    /// </summary>
+    private static List<(string newName, int position)> FindRenamedTables(string content)
+    {
+        var results = new List<(string newName, int position)>();
+        var pattern = @"\.RenameTable\s*\(([\s\S]*?)\);";
+
+        foreach (Match match in Regex.Matches(content, pattern))
+        {
+            var args = match.Groups[1].Value;
+            var newNameMatch = Regex.Match(args, @"newName:\s*""([^""]+)""");
+
+            if (newNameMatch.Success)
+            {
+                results.Add((newNameMatch.Groups[1].Value, match.Index));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finds all DropTable operations and extracts (name, position).
+    /// </summary>
+    private static List<(string name, int position)> FindDroppedTables(string content)
+    {
+        var results = new List<(string name, int position)>();
+        var pattern = @"\.DropTable\s*\(([\s\S]*?)\);";
+
+        foreach (Match match in Regex.Matches(content, pattern))
+        {
+            var args = match.Groups[1].Value;
+            var nameMatch = Regex.Match(args, @"name:\s*""([^""]+)""");
+
+            if (nameMatch.Success)
+            {
+                results.Add((nameMatch.Groups[1].Value, match.Index));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finds all RenameIndex operations and extracts (newName, position).
+    /// </summary>
+    private static List<(string newName, int position)> FindRenamedIndexes(string content)
+    {
+        var results = new List<(string newName, int position)>();
+        var pattern = @"\.RenameIndex\s*\(([\s\S]*?)\);";
+
+        foreach (Match match in Regex.Matches(content, pattern))
+        {
+            var args = match.Groups[1].Value;
+            var newNameMatch = Regex.Match(args, @"newName:\s*""([^""]+)""");
+
+            if (newNameMatch.Success)
+            {
+                results.Add((newNameMatch.Groups[1].Value, match.Index));
+            }
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Finds all DropIndex operations and extracts (name, position).
+    /// </summary>
+    private static List<(string name, int position)> FindDroppedIndexes(string content)
+    {
+        var results = new List<(string name, int position)>();
+        var pattern = @"\.DropIndex\s*\(([\s\S]*?)\);";
+
+        foreach (Match match in Regex.Matches(content, pattern))
+        {
+            var args = match.Groups[1].Value;
+            var nameMatch = Regex.Match(args, @"name:\s*""([^""]+)""");
+
+            if (nameMatch.Success)
+            {
+                results.Add((nameMatch.Groups[1].Value, match.Index));
+            }
+        }
+
+        return results;
     }
 
     internal static string? FindProjectFile(string migrationsDirectory, string? explicitProjectPath = null)

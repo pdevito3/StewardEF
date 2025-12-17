@@ -63,13 +63,17 @@ The squash command combines all existing migrations into a single, consolidated 
 2. **Using Statements**: Collects using statements from all migrations, ensuring no dependencies are missed
 3. **Designer File Update**: Renames the latest designer file to match the first migration and updates its metadata
 4. **Cleanup**: Deletes all intermediate migrations, leaving only the squashed first migration
-5. **Automatic Rename Detection** (post-squash): Scans the squashed result for rename operations (`RenameColumn`, `RenameTable`, `RenameIndex`)
-6. **SQL Conversion** (if needed): If rename operations are detected, automatically converts the squashed migration to SQL format
-   > *Why?* When EF executes rename operations, it needs the designer file to validate that the column/table exists and determine its type. If a column is renamed then later dropped, the final designer snapshot won't contain it, causing "could not be found in target model" errors. Converting to SQL captures the correct schema transformations without relying on designer metadata.
+5. **Automatic Rename Detection** (post-squash): Scans the squashed result for problematic rename-then-drop patterns (e.g., `RenameColumn` followed by `DropColumn` of the renamed column)
+6. **SQL Conversion** (if needed): If a renamed entity is subsequently dropped, automatically converts the squashed migration to SQL format
+   > *Why?* When EF executes rename operations, it needs the designer file to validate that the column/table exists. If a column is renamed then later dropped, the final designer snapshot won't contain it, causing "could not be found in target model" errors. Converting to SQL captures the correct schema transformations without relying on designer metadata.
+   >
+   > *Note:* Simple renames without a subsequent drop are safe and won't trigger SQL conversion.
 
 ##### Handling Rename Operations
 
-When the squash command detects rename operations in the squashed migration, you'll see output like this:
+The tool detects **rename-then-drop patterns** - cases where a column, table, or index is renamed and then subsequently dropped. These patterns are problematic because the drop operation references an entity by its new name, but the final model snapshot doesn't know about the rename history.
+
+When problematic patterns are detected, you'll see output like this:
 
 ```
 Squashing 15 migration files...
@@ -82,7 +86,7 @@ Found project: MyApp.csproj
 
 The tool automatically:
 1. Squashes migrations normally using C# code concatenation
-2. Checks the squashed result for problematic rename operations
+2. Checks for rename-then-drop patterns (e.g., `RenameColumn` → `DropColumn` for the same column)
 3. If found, locates your `.csproj` file (searches up the directory tree)
 4. Generates SQL scripts using `dotnet ef migrations script 0 <migration-id>`
 5. Replaces the squashed migration content with `migrationBuilder.Sql()` calls containing the generated SQL

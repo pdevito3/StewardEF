@@ -25,12 +25,12 @@ public class SqlConversionTests : IDisposable
         }
     }
 
-    #region HasProblematicRenameOperations Tests
+    #region HasProblematicRenameOperations Tests - Rename Only (No Drop)
 
     [Fact]
-    public void HasProblematicRenameOperations_ShouldReturnTrue_WhenRenameColumnExists()
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenRenameColumnOnly()
     {
-        // Arrange
+        // Arrange - Rename without subsequent drop is NOT problematic
         var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
         File.WriteAllText(migrationFile, @"
 namespace TestProject.Migrations
@@ -50,14 +50,14 @@ namespace TestProject.Migrations
         // Act
         var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
 
-        // Assert
-        result.ShouldBeTrue();
+        // Assert - Rename without drop is safe
+        result.ShouldBeFalse();
     }
 
     [Fact]
-    public void HasProblematicRenameOperations_ShouldReturnTrue_WhenRenameTableExists()
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenRenameTableOnly()
     {
-        // Arrange
+        // Arrange - Rename without subsequent drop is NOT problematic
         var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
         File.WriteAllText(migrationFile, @"
 namespace TestProject.Migrations
@@ -76,14 +76,14 @@ namespace TestProject.Migrations
         // Act
         var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
 
-        // Assert
-        result.ShouldBeTrue();
+        // Assert - Rename without drop is safe
+        result.ShouldBeFalse();
     }
 
     [Fact]
-    public void HasProblematicRenameOperations_ShouldReturnTrue_WhenRenameIndexExists()
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenRenameIndexOnly()
     {
-        // Arrange
+        // Arrange - Rename without subsequent drop is NOT problematic
         var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
         File.WriteAllText(migrationFile, @"
 namespace TestProject.Migrations
@@ -103,8 +103,8 @@ namespace TestProject.Migrations
         // Act
         var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
 
-        // Assert
-        result.ShouldBeTrue();
+        // Assert - Rename without drop is safe
+        result.ShouldBeFalse();
     }
 
     [Fact]
@@ -155,15 +155,16 @@ namespace TestProject.Migrations
     }
 }");
 
-        // Designer file contains "RenameColumn" in a comment or attribute
+        // Designer file contains rename operations in comments - should be skipped
         File.WriteAllText(designerFile, @"
-// This file contains RenameColumn in a comment but should be skipped
+// This file contains RenameColumn and DropColumn in a comment but should be skipped
 [Migration(""20231201000000_TestMigration"")]
 partial class TestMigration
 {
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
     {
-        // Model configuration
+        // migrationBuilder.RenameColumn(...);
+        // migrationBuilder.DropColumn(...);
     }
 }");
 
@@ -175,14 +176,14 @@ partial class TestMigration
     }
 
     [Fact]
-    public void HasProblematicRenameOperations_ShouldNotTriggerOnSimilarText()
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenTextContainsRenameColumnButNoActualCall()
     {
-        // Arrange
+        // Arrange - Text mentions RenameColumn but no actual method call
         var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
         File.WriteAllText(migrationFile, @"
 namespace TestProject.Migrations
 {
-    // This migration does not RenameColumn but mentions it in a comment
+    // This migration does not call RenameColumn but mentions it in a comment
     public partial class TestMigration : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -198,8 +199,439 @@ namespace TestProject.Migrations
         // Act
         var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
 
-        // Assert - Should still be true because the text contains "RenameColumn"
-        // This is acceptable as a false positive is safer than a false negative
+        // Assert - No actual rename-then-drop pattern, so false
+        result.ShouldBeFalse();
+    }
+
+    #endregion
+
+    #region HasProblematicRenameOperations Tests - Rename Then Drop (Problematic)
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnTrue_WhenRenameColumnThenDropColumn()
+    {
+        // Arrange - Rename followed by drop of the renamed column IS problematic
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""OldName"",
+                table: ""Users"",
+                newName: ""NewName"");
+
+            migrationBuilder.DropColumn(
+                name: ""NewName"",
+                table: ""Users"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnTrue_WhenRenameTableThenDropTable()
+    {
+        // Arrange - Rename followed by drop of the renamed table IS problematic
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameTable(
+                name: ""OldTable"",
+                newName: ""NewTable"");
+
+            migrationBuilder.DropTable(
+                name: ""NewTable"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnTrue_WhenRenameIndexThenDropIndex()
+    {
+        // Arrange - Rename followed by drop of the renamed index IS problematic
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameIndex(
+                name: ""IX_OldName"",
+                table: ""Users"",
+                newName: ""IX_NewName"");
+
+            migrationBuilder.DropIndex(
+                name: ""IX_NewName"",
+                table: ""Users"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenDropColumnBeforeRename()
+    {
+        // Arrange - Drop comes BEFORE rename (order matters) - not problematic
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropColumn(
+                name: ""SomeColumn"",
+                table: ""Users"");
+
+            migrationBuilder.RenameColumn(
+                name: ""OldName"",
+                table: ""Users"",
+                newName: ""SomeColumn"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - Drop comes before rename, so the drop doesn't reference the renamed entity
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenDropDifferentColumn()
+    {
+        // Arrange - Rename and drop are for different columns
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""OldName"",
+                table: ""Users"",
+                newName: ""NewName"");
+
+            migrationBuilder.DropColumn(
+                name: ""UnrelatedColumn"",
+                table: ""Users"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - Different column is dropped, not the renamed one
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenDropSameColumnDifferentTable()
+    {
+        // Arrange - Same column name but different table
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""OldName"",
+                table: ""Users"",
+                newName: ""NewName"");
+
+            migrationBuilder.DropColumn(
+                name: ""NewName"",
+                table: ""Orders"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - Different table, so not the same column
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldBeCaseInsensitive()
+    {
+        // Arrange - Case difference in table/column names should still match
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""oldname"",
+                table: ""users"",
+                newName: ""newname"");
+
+            migrationBuilder.DropColumn(
+                name: ""NEWNAME"",
+                table: ""USERS"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - Should match despite case difference
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldHandleMultipleRenamesWithOneDrop()
+    {
+        // Arrange - Multiple renames, only one is subsequently dropped
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""Col1"",
+                table: ""Users"",
+                newName: ""Column1"");
+
+            migrationBuilder.RenameColumn(
+                name: ""Col2"",
+                table: ""Users"",
+                newName: ""Column2"");
+
+            migrationBuilder.DropColumn(
+                name: ""Column2"",
+                table: ""Users"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - Column2 is renamed then dropped
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldHandleComplexScenario()
+    {
+        // Arrange - Complex migration with mixed operations
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            // Create a table
+            migrationBuilder.CreateTable(
+                name: ""Products"",
+                columns: table => new { Id = table.Column<int>() });
+
+            // Rename a column in a different table
+            migrationBuilder.RenameColumn(
+                name: ""OldPrice"",
+                table: ""Items"",
+                newName: ""Price"");
+
+            // Add a column
+            migrationBuilder.AddColumn<string>(
+                name: ""Description"",
+                table: ""Products"");
+
+            // Rename and then drop a column - THIS is problematic
+            migrationBuilder.RenameColumn(
+                name: ""TempCol"",
+                table: ""Users"",
+                newName: ""ToBeDeleted"");
+
+            migrationBuilder.DropColumn(
+                name: ""ToBeDeleted"",
+                table: ""Users"");
+
+            // Drop an unrelated column
+            migrationBuilder.DropColumn(
+                name: ""UnrelatedCol"",
+                table: ""Orders"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - TempCol is renamed to ToBeDeleted, then ToBeDeleted is dropped
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldHandleMultilineFormats()
+    {
+        // Arrange - Different formatting styles
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(name: ""Old"", table: ""T"", newName: ""New"");
+            migrationBuilder.DropColumn(name: ""New"", table: ""T"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldReturnFalse_WhenDroppingOriginalNameNotNewName()
+    {
+        // Arrange - Dropping the ORIGINAL column name, not the renamed one
+        // This is valid: create OldName, rename to NewName, then drop a different OldName column
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""OldName"",
+                table: ""Users"",
+                newName: ""NewName"");
+
+            // Dropping OldName (the original), not NewName (the renamed)
+            migrationBuilder.DropColumn(
+                name: ""OldName"",
+                table: ""Users"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - This is NOT problematic; we only care if the NEW name is dropped
+        result.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldHandleIndexWithoutTableParameter()
+    {
+        // Arrange - DropIndex often omits table parameter in EF migrations
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameIndex(
+                name: ""IX_Old"",
+                newName: ""IX_New"");
+
+            migrationBuilder.DropIndex(
+                name: ""IX_New"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert
+        result.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void HasProblematicRenameOperations_ShouldDetectChainedRenames()
+    {
+        // Arrange - Rename A→B, then B→C, then drop C
+        // The B→C rename followed by drop C should be detected
+        var migrationFile = Path.Combine(_testDirectory, "20231201000000_TestMigration.cs");
+        File.WriteAllText(migrationFile, @"
+namespace TestProject.Migrations
+{
+    public partial class TestMigration : Migration
+    {
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.RenameColumn(
+                name: ""ColumnA"",
+                table: ""Users"",
+                newName: ""ColumnB"");
+
+            migrationBuilder.RenameColumn(
+                name: ""ColumnB"",
+                table: ""Users"",
+                newName: ""ColumnC"");
+
+            migrationBuilder.DropColumn(
+                name: ""ColumnC"",
+                table: ""Users"");
+        }
+    }
+}");
+
+        // Act
+        var result = SquashMigrationsCommand.HasProblematicRenameOperations(new[] { migrationFile });
+
+        // Assert - B→C rename followed by drop C is problematic
         result.ShouldBeTrue();
     }
 
