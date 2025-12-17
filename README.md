@@ -75,7 +75,8 @@ The squash command combines all existing migrations into a single, consolidated 
    > *Note:* Simple renames without a subsequent drop are safe and won't trigger SQL conversion.
 7. **SQL Sanitization**: When converting to SQL, the tool automatically strips statements that would conflict with EF Core's runtime behavior:
    - Transaction statements (`START TRANSACTION`, `BEGIN TRANSACTION`, `COMMIT`) - EF Core wraps migrations in its own transaction
-   - EF history table statements (`INSERT INTO __EFMigrationsHistory`, `DELETE FROM __EFMigrationsHistory`) - EF Core manages migration history automatically
+   - EF history table statements (`INSERT INTO __EFMigrationsHistory`, `DELETE FROM __EFMigrationsHistory`, `CREATE TABLE __EFMigrationsHistory`) - EF Core manages migration history automatically
+   - PostgreSQL schema creation preamble (`DO $EF$ ... CREATE SCHEMA ... END $EF$`) - prevents duplicate schema checks when squashing multiple migrations
 
 ##### Handling Rename Operations
 

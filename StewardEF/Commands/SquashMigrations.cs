@@ -933,6 +933,18 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         sql = Regex.Replace(sql, @"^\s*(START\s+TRANSACTION|BEGIN\s+TRANSACTION|BEGIN|COMMIT)\s*;\s*$",
             string.Empty, RegexOptions.Multiline | RegexOptions.IgnoreCase);
 
+        // Remove PostgreSQL schema creation preamble (EF adds this but it causes duplicates)
+        // Matches: DO $EF$ BEGIN IF NOT EXISTS(...pg_namespace...CREATE SCHEMA...) END $EF$;
+        sql = Regex.Replace(sql,
+            @"DO\s+\$EF\$[\s\S]*?pg_namespace[\s\S]*?END\s+\$EF\$\s*;",
+            string.Empty, RegexOptions.IgnoreCase);
+
+        // Remove CREATE TABLE for __EFMigrationsHistory (EF Core manages this table automatically)
+        // Handles: CREATE TABLE IF NOT EXISTS schema."__EFMigrationsHistory" (...)
+        sql = Regex.Replace(sql,
+            @"^\s*CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?[\[\]""']?[\w.]*[\[\]""']?__EFMigrationsHistory[\[\]""']?\s*\([^;]+\)\s*;\s*$",
+            string.Empty, RegexOptions.Multiline | RegexOptions.IgnoreCase);
+
         // Remove INSERT INTO __EFMigrationsHistory (EF Core tracks this automatically)
         // Handles various quote styles: "", '', [], none, and table name with/without schema
         // Uses [\s\S] to match across newlines since INSERT and VALUES may be on separate lines

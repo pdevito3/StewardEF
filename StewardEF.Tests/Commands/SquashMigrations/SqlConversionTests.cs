@@ -896,9 +896,10 @@ COMMIT;";
     }
 
     [Fact]
-    public void SanitizeEfGeneratedSql_ShouldPreserveBeginInPlPgSqlBlock()
+    public void SanitizeEfGeneratedSql_ShouldRemoveEfSchemaPreamble()
     {
-        // Arrange - DO $EF$ BEGIN ... END $EF$ blocks should be preserved
+        // Arrange - DO $EF$ blocks that check pg_namespace for schema creation are EF preamble
+        // and should be removed (they cause duplicates when squashing)
         var sql = @"DO $EF$
 BEGIN
     IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'myschema') THEN
@@ -910,10 +911,9 @@ CREATE TABLE myschema.users (id INT);";
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
 
-        // Assert - The PL/pgSQL BEGIN should be preserved (it's not on its own line with just BEGIN;)
-        result.ShouldContain("DO $EF$");
-        result.ShouldContain("BEGIN");
-        result.ShouldContain("END $EF$");
+        // Assert - The EF preamble should be removed, but the actual table creation preserved
+        result.ShouldNotContain("DO $EF$");
+        result.ShouldNotContain("pg_namespace");
         result.ShouldContain("CREATE TABLE myschema.users");
     }
 
@@ -1018,15 +1018,15 @@ COMMIT;";
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
 
-        // Assert
+        // Assert - All EF preamble/boilerplate should be removed
         result.ShouldNotContain("START TRANSACTION");
         result.ShouldNotContain("COMMIT");
         result.ShouldNotContain("INSERT INTO");
         result.ShouldNotContain("__EFMigrationsHistory");
+        result.ShouldNotContain("DO $EF$");
+        result.ShouldNotContain("pg_namespace");
 
-        // These should all be preserved
-        result.ShouldContain("DO $EF$");
-        result.ShouldContain("CREATE SCHEMA motion_net");
+        // The actual user tables should be preserved
         result.ShouldContain("CREATE TABLE motion_net.users");
         result.ShouldContain("CREATE INDEX ix_users_email");
     }
@@ -1208,6 +1208,133 @@ CREATE TABLE users (id INT);
         result.ShouldContain("CREATE TABLE users");
         result.ShouldNotContain("START TRANSACTION");
         result.ShouldNotContain("COMMIT");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveCreateTableEfMigrationsHistory()
+    {
+        // Arrange - PostgreSQL style with schema
+        var sql = @"CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
+    migration_id character varying(150) NOT NULL,
+    product_version character varying(32) NOT NULL,
+    CONSTRAINT pk___ef_migrations_history PRIMARY KEY (migration_id)
+);
+
+CREATE TABLE motion_net.users (id INT);";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldNotContain("__EFMigrationsHistory");
+        result.ShouldNotContain("pk___ef_migrations_history");
+        result.ShouldContain("CREATE TABLE motion_net.users");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveCreateTableEfMigrationsHistorySqlServer()
+    {
+        // Arrange - SQL Server style with brackets
+        var sql = @"CREATE TABLE [__EFMigrationsHistory] (
+    [MigrationId] nvarchar(150) NOT NULL,
+    [ProductVersion] nvarchar(32) NOT NULL,
+    CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+);
+
+CREATE TABLE [Users] (Id INT);";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldNotContain("__EFMigrationsHistory");
+        result.ShouldContain("CREATE TABLE [Users]");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemovePostgresSchemaCreationPreamble()
+    {
+        // Arrange - PostgreSQL schema creation preamble
+        var sql = @"DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
+        CREATE SCHEMA motion_net;
+    END IF;
+END $EF$;
+
+CREATE TABLE motion_net.users (id INT);";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldNotContain("DO $EF$");
+        result.ShouldNotContain("pg_namespace");
+        result.ShouldNotContain("CREATE SCHEMA");
+        result.ShouldContain("CREATE TABLE motion_net.users");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveDuplicatePreambles()
+    {
+        // Arrange - Duplicate preambles (the actual bug scenario)
+        var sql = @"DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
+        CREATE SCHEMA motion_net;
+    END IF;
+END $EF$;
+CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
+    migration_id character varying(150) NOT NULL,
+    product_version character varying(32) NOT NULL,
+    CONSTRAINT pk___ef_migrations_history PRIMARY KEY (migration_id)
+);
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
+        CREATE SCHEMA motion_net;
+    END IF;
+END $EF$;
+CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
+    migration_id character varying(150) NOT NULL,
+    product_version character varying(32) NOT NULL,
+    CONSTRAINT pk___ef_migrations_history PRIMARY KEY (migration_id)
+);
+
+CREATE TABLE motion_net.users (
+    id text NOT NULL,
+    email text NOT NULL,
+    CONSTRAINT pk_users PRIMARY KEY (id)
+);";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert - All preambles should be removed
+        result.ShouldNotContain("DO $EF$");
+        result.ShouldNotContain("pg_namespace");
+        result.ShouldNotContain("CREATE SCHEMA");
+        result.ShouldNotContain("__EFMigrationsHistory");
+
+        // The actual table should be preserved
+        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldContain("pk_users");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldPreserveUserCreatedSchemas()
+    {
+        // Arrange - User's own CREATE SCHEMA that's not part of the EF preamble
+        var sql = @"CREATE SCHEMA IF NOT EXISTS custom_schema;
+CREATE TABLE custom_schema.my_table (id INT);";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert - User's schema creation should be preserved
+        result.ShouldContain("CREATE SCHEMA IF NOT EXISTS custom_schema");
+        result.ShouldContain("CREATE TABLE custom_schema.my_table");
     }
 
     #endregion
