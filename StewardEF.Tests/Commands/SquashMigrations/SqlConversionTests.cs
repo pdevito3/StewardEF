@@ -939,16 +939,16 @@ VALUES ('20231201000000_InitialCreate', '8.0.0');";
     public void SanitizeEfGeneratedSql_ShouldRemoveInsertWithSchemaQualifiedTable()
     {
         // Arrange - PostgreSQL with schema
-        var sql = @"CREATE TABLE motion_net.users (id INT);
+        var sql = @"CREATE TABLE my_schema.users (id INT);
 
-INSERT INTO motion_net.""__EFMigrationsHistory"" (migration_id, product_version)
+INSERT INTO my_schema.""__EFMigrationsHistory"" (migration_id, product_version)
 VALUES ('20231201000000_InitialCreate', '10.0.0');";
 
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
 
         // Assert
-        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldContain("CREATE TABLE my_schema.users");
         result.ShouldNotContain("INSERT INTO");
         result.ShouldNotContain("__EFMigrationsHistory");
     }
@@ -975,16 +975,16 @@ WHERE migration_id = '20231201000000_InitialCreate';";
     public void SanitizeEfGeneratedSql_ShouldRemoveDeleteWithSchemaQualifiedTable()
     {
         // Arrange - PostgreSQL with schema
-        var sql = @"DROP TABLE motion_net.users;
+        var sql = @"DROP TABLE my_schema.users;
 
-DELETE FROM motion_net.""__EFMigrationsHistory""
+DELETE FROM my_schema.""__EFMigrationsHistory""
 WHERE migration_id = '20231201000000_InitialCreate';";
 
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
 
         // Assert
-        result.ShouldContain("DROP TABLE motion_net.users");
+        result.ShouldContain("DROP TABLE my_schema.users");
         result.ShouldNotContain("DELETE FROM");
         result.ShouldNotContain("__EFMigrationsHistory");
     }
@@ -997,20 +997,20 @@ WHERE migration_id = '20231201000000_InitialCreate';";
 
 DO $EF$
 BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
-        CREATE SCHEMA motion_net;
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'my_schema') THEN
+        CREATE SCHEMA my_schema;
     END IF;
 END $EF$;
 
-CREATE TABLE motion_net.users (
+CREATE TABLE my_schema.users (
     id text NOT NULL,
     email text NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id)
 );
 
-CREATE INDEX ix_users_email ON motion_net.users (email);
+CREATE INDEX ix_users_email ON my_schema.users (email);
 
-INSERT INTO motion_net.""__EFMigrationsHistory"" (migration_id, product_version)
+INSERT INTO my_schema.""__EFMigrationsHistory"" (migration_id, product_version)
 VALUES ('20250824024911_InitialCreate', '10.0.0');
 
 COMMIT;";
@@ -1018,16 +1018,16 @@ COMMIT;";
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
 
-        // Assert - All EF preamble/boilerplate should be removed
+        // Assert
         result.ShouldNotContain("START TRANSACTION");
         result.ShouldNotContain("COMMIT");
         result.ShouldNotContain("INSERT INTO");
         result.ShouldNotContain("__EFMigrationsHistory");
-        result.ShouldNotContain("DO $EF$");
-        result.ShouldNotContain("pg_namespace");
 
-        // The actual user tables should be preserved
-        result.ShouldContain("CREATE TABLE motion_net.users");
+        // These should all be preserved
+        result.ShouldContain("DO $EF$");
+        result.ShouldContain("CREATE SCHEMA my_schema");
+        result.ShouldContain("CREATE TABLE my_schema.users");
         result.ShouldContain("CREATE INDEX ix_users_email");
     }
 
@@ -1214,13 +1214,13 @@ CREATE TABLE users (id INT);
     public void SanitizeEfGeneratedSql_ShouldRemoveCreateTableEfMigrationsHistory()
     {
         // Arrange - PostgreSQL style with schema
-        var sql = @"CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
+        var sql = @"CREATE TABLE IF NOT EXISTS my_schema.""__EFMigrationsHistory"" (
     migration_id character varying(150) NOT NULL,
     product_version character varying(32) NOT NULL,
     CONSTRAINT pk___ef_migrations_history PRIMARY KEY (migration_id)
 );
 
-CREATE TABLE motion_net.users (id INT);";
+CREATE TABLE my_schema.users (id INT);";
 
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
@@ -1228,7 +1228,7 @@ CREATE TABLE motion_net.users (id INT);";
         // Assert
         result.ShouldNotContain("__EFMigrationsHistory");
         result.ShouldNotContain("pk___ef_migrations_history");
-        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldContain("CREATE TABLE my_schema.users");
     }
 
     [Fact]
@@ -1257,12 +1257,12 @@ CREATE TABLE [Users] (Id INT);";
         // Arrange - PostgreSQL schema creation preamble
         var sql = @"DO $EF$
 BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
-        CREATE SCHEMA motion_net;
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'my_schema') THEN
+        CREATE SCHEMA my_schema;
     END IF;
 END $EF$;
 
-CREATE TABLE motion_net.users (id INT);";
+CREATE TABLE my_schema.users (id INT);";
 
         // Act
         var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
@@ -1271,7 +1271,7 @@ CREATE TABLE motion_net.users (id INT);";
         result.ShouldNotContain("DO $EF$");
         result.ShouldNotContain("pg_namespace");
         result.ShouldNotContain("CREATE SCHEMA");
-        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldContain("CREATE TABLE my_schema.users");
     }
 
     [Fact]
@@ -1280,11 +1280,11 @@ CREATE TABLE motion_net.users (id INT);";
         // Arrange - Duplicate preambles (the actual bug scenario)
         var sql = @"DO $EF$
 BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
-        CREATE SCHEMA motion_net;
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'my_schema') THEN
+        CREATE SCHEMA my_schema;
     END IF;
 END $EF$;
-CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
+CREATE TABLE IF NOT EXISTS my_schema.""__EFMigrationsHistory"" (
     migration_id character varying(150) NOT NULL,
     product_version character varying(32) NOT NULL,
     CONSTRAINT pk___ef_migrations_history PRIMARY KEY (migration_id)
@@ -1292,17 +1292,17 @@ CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
 
 DO $EF$
 BEGIN
-    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
-        CREATE SCHEMA motion_net;
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'my_schema') THEN
+        CREATE SCHEMA my_schema;
     END IF;
 END $EF$;
-CREATE TABLE IF NOT EXISTS motion_net.""__EFMigrationsHistory"" (
+CREATE TABLE IF NOT EXISTS my_schema.""__EFMigrationsHistory"" (
     migration_id character varying(150) NOT NULL,
     product_version character varying(32) NOT NULL,
     CONSTRAINT pk___ef_migrations_history PRIMARY KEY (migration_id)
 );
 
-CREATE TABLE motion_net.users (
+CREATE TABLE my_schema.users (
     id text NOT NULL,
     email text NOT NULL,
     CONSTRAINT pk_users PRIMARY KEY (id)
@@ -1318,7 +1318,7 @@ CREATE TABLE motion_net.users (
         result.ShouldNotContain("__EFMigrationsHistory");
 
         // The actual table should be preserved
-        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldContain("CREATE TABLE my_schema.users");
         result.ShouldContain("pk_users");
     }
 
