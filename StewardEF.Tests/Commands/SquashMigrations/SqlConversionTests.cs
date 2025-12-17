@@ -841,4 +841,374 @@ partial class Add_User_Table
     }
 
     #endregion
+
+    #region SanitizeEfGeneratedSql Tests
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveStartTransaction()
+    {
+        // Arrange
+        var sql = @"START TRANSACTION;
+CREATE TABLE users (id INT);
+COMMIT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldNotContain("START TRANSACTION");
+        result.ShouldNotContain("COMMIT");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveBeginTransaction()
+    {
+        // Arrange - SQL Server style
+        var sql = @"BEGIN TRANSACTION;
+CREATE TABLE users (id INT);
+COMMIT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldNotContain("BEGIN TRANSACTION");
+        result.ShouldNotContain("COMMIT");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveStandaloneBegin()
+    {
+        // Arrange - Some providers use just BEGIN
+        var sql = @"BEGIN;
+CREATE TABLE users (id INT);
+COMMIT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldNotContain("BEGIN;");
+        result.ShouldNotContain("COMMIT");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldPreserveBeginInPlPgSqlBlock()
+    {
+        // Arrange - DO $EF$ BEGIN ... END $EF$ blocks should be preserved
+        var sql = @"DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'myschema') THEN
+        CREATE SCHEMA myschema;
+    END IF;
+END $EF$;
+CREATE TABLE myschema.users (id INT);";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert - The PL/pgSQL BEGIN should be preserved (it's not on its own line with just BEGIN;)
+        result.ShouldContain("DO $EF$");
+        result.ShouldContain("BEGIN");
+        result.ShouldContain("END $EF$");
+        result.ShouldContain("CREATE TABLE myschema.users");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveInsertIntoEfMigrationsHistory()
+    {
+        // Arrange
+        var sql = @"CREATE TABLE users (id INT);
+
+INSERT INTO __EFMigrationsHistory (migration_id, product_version)
+VALUES ('20231201000000_InitialCreate', '8.0.0');";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldNotContain("INSERT INTO __EFMigrationsHistory");
+        result.ShouldNotContain("20231201000000_InitialCreate");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveInsertWithSchemaQualifiedTable()
+    {
+        // Arrange - PostgreSQL with schema
+        var sql = @"CREATE TABLE motion_net.users (id INT);
+
+INSERT INTO motion_net.""__EFMigrationsHistory"" (migration_id, product_version)
+VALUES ('20231201000000_InitialCreate', '10.0.0');";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldNotContain("INSERT INTO");
+        result.ShouldNotContain("__EFMigrationsHistory");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveDeleteFromEfMigrationsHistory()
+    {
+        // Arrange
+        var sql = @"DROP TABLE users;
+
+DELETE FROM __EFMigrationsHistory
+WHERE migration_id = '20231201000000_InitialCreate';";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("DROP TABLE users");
+        result.ShouldNotContain("DELETE FROM __EFMigrationsHistory");
+        result.ShouldNotContain("20231201000000_InitialCreate");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldRemoveDeleteWithSchemaQualifiedTable()
+    {
+        // Arrange - PostgreSQL with schema
+        var sql = @"DROP TABLE motion_net.users;
+
+DELETE FROM motion_net.""__EFMigrationsHistory""
+WHERE migration_id = '20231201000000_InitialCreate';";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("DROP TABLE motion_net.users");
+        result.ShouldNotContain("DELETE FROM");
+        result.ShouldNotContain("__EFMigrationsHistory");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldHandleCompletePostgresScript()
+    {
+        // Arrange - Realistic PostgreSQL migration script
+        var sql = @"START TRANSACTION;
+
+DO $EF$
+BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname = 'motion_net') THEN
+        CREATE SCHEMA motion_net;
+    END IF;
+END $EF$;
+
+CREATE TABLE motion_net.users (
+    id text NOT NULL,
+    email text NOT NULL,
+    CONSTRAINT pk_users PRIMARY KEY (id)
+);
+
+CREATE INDEX ix_users_email ON motion_net.users (email);
+
+INSERT INTO motion_net.""__EFMigrationsHistory"" (migration_id, product_version)
+VALUES ('20250824024911_InitialCreate', '10.0.0');
+
+COMMIT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldNotContain("START TRANSACTION");
+        result.ShouldNotContain("COMMIT");
+        result.ShouldNotContain("INSERT INTO");
+        result.ShouldNotContain("__EFMigrationsHistory");
+
+        // These should all be preserved
+        result.ShouldContain("DO $EF$");
+        result.ShouldContain("CREATE SCHEMA motion_net");
+        result.ShouldContain("CREATE TABLE motion_net.users");
+        result.ShouldContain("CREATE INDEX ix_users_email");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldHandleCompleteSqlServerScript()
+    {
+        // Arrange - Realistic SQL Server migration script
+        var sql = @"BEGIN TRANSACTION;
+
+IF NOT EXISTS(SELECT * FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20231201000000_Init')
+BEGIN
+    CREATE TABLE [Users] (
+        [Id] int NOT NULL IDENTITY,
+        [Email] nvarchar(max) NOT NULL,
+        CONSTRAINT [PK_Users] PRIMARY KEY ([Id])
+    );
+END;
+
+INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+VALUES (N'20231201000000_Init', N'8.0.0');
+
+COMMIT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldNotContain("BEGIN TRANSACTION");
+        result.ShouldNotContain("COMMIT;");
+        result.ShouldNotContain("INSERT INTO [__EFMigrationsHistory]");
+
+        // The IF NOT EXISTS check and CREATE TABLE should be preserved
+        result.ShouldContain("IF NOT EXISTS");
+        result.ShouldContain("CREATE TABLE [Users]");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldBeCaseInsensitive()
+    {
+        // Arrange
+        var sql = @"start transaction;
+CREATE TABLE users (id INT);
+commit;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldNotContain("start transaction");
+        result.ShouldNotContain("commit");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldHandleMultipleTransactionBlocks()
+    {
+        // Arrange - Multiple transaction blocks (can happen with multiple migrations)
+        var sql = @"START TRANSACTION;
+CREATE TABLE users (id INT);
+COMMIT;
+
+START TRANSACTION;
+ALTER TABLE users ADD COLUMN email TEXT;
+COMMIT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldContain("ALTER TABLE users ADD COLUMN email TEXT");
+        result.ShouldNotContain("START TRANSACTION");
+        result.ShouldNotContain("COMMIT");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldCleanUpExcessiveBlankLines()
+    {
+        // Arrange
+        var sql = @"CREATE TABLE users (id INT);
+
+
+
+ALTER TABLE users ADD COLUMN email TEXT;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert - Should not have more than 2 consecutive newlines
+        result.ShouldNotContain("\n\n\n");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldTrimResult()
+    {
+        // Arrange
+        var sql = @"
+
+CREATE TABLE users (id INT);
+
+";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldBe("CREATE TABLE users (id INT);");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldPreserveLegitimateDeleteStatements()
+    {
+        // Arrange - DELETE that's not from __EFMigrationsHistory should be preserved
+        var sql = @"DELETE FROM users WHERE id = 1;
+DELETE FROM orders WHERE user_id = 1;";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("DELETE FROM users");
+        result.ShouldContain("DELETE FROM orders");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldPreserveLegitimateInsertStatements()
+    {
+        // Arrange - INSERT that's not into __EFMigrationsHistory should be preserved
+        var sql = @"INSERT INTO users (id, email) VALUES (1, 'test@example.com');
+INSERT INTO roles (id, name) VALUES (1, 'admin');";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("INSERT INTO users");
+        result.ShouldContain("INSERT INTO roles");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldHandleEmptyInput()
+    {
+        // Arrange
+        var sql = "";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldBe("");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldHandleWhitespaceOnlyInput()
+    {
+        // Arrange
+        var sql = "   \n\n   ";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldBe("");
+    }
+
+    [Fact]
+    public void SanitizeEfGeneratedSql_ShouldHandleTransactionWithWhitespace()
+    {
+        // Arrange - Extra whitespace around transaction statements
+        var sql = @"  START TRANSACTION;
+CREATE TABLE users (id INT);
+   COMMIT;   ";
+
+        // Act
+        var result = SquashMigrationsCommand.SanitizeEfGeneratedSql(sql);
+
+        // Assert
+        result.ShouldContain("CREATE TABLE users");
+        result.ShouldNotContain("START TRANSACTION");
+        result.ShouldNotContain("COMMIT");
+    }
+
+    #endregion
 }

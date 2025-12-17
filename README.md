@@ -73,6 +73,9 @@ The squash command combines all existing migrations into a single, consolidated 
    > *Why?* When EF executes rename operations, it needs the designer file to validate that the column/table exists. If a column is renamed then later dropped, the final designer snapshot won't contain it, causing "could not be found in target model" errors. Converting to SQL captures the correct schema transformations without relying on designer metadata.
    >
    > *Note:* Simple renames without a subsequent drop are safe and won't trigger SQL conversion.
+7. **SQL Sanitization**: When converting to SQL, the tool automatically strips statements that would conflict with EF Core's runtime behavior:
+   - Transaction statements (`START TRANSACTION`, `BEGIN TRANSACTION`, `COMMIT`) - EF Core wraps migrations in its own transaction
+   - EF history table statements (`INSERT INTO __EFMigrationsHistory`, `DELETE FROM __EFMigrationsHistory`) - EF Core manages migration history automatically
 
 ##### Handling Rename Operations
 
@@ -160,7 +163,8 @@ The convert-to-sql command:
 1. Locates the specified migration (or most recent if not specified)
 2. Finds the associated `.Designer.cs` file to extract the migration ID
 3. Uses `dotnet ef migrations script` to generate SQL for the Up and Down methods
-4. Replaces the migration's C# code with `migrationBuilder.Sql()` calls containing the generated SQL
+4. Sanitizes the SQL (removes transaction and EF history statements that conflict with EF Core's runtime)
+5. Replaces the migration's C# code with `migrationBuilder.Sql()` calls containing the generated SQL
 
 This is particularly useful for:
 - **Fixing problematic migrations** after they've been created

@@ -226,6 +226,10 @@ internal class ConvertToSqlCommand : Command<ConvertToSqlCommand.Settings>
     {
         var lines = File.ReadAllLines(migrationFilePath).ToList();
 
+        // Sanitize SQL to remove statements that conflict with EF Core's runtime behavior
+        upSql = SquashMigrationsCommand.SanitizeEfGeneratedSql(upSql);
+        downSql = SquashMigrationsCommand.SanitizeEfGeneratedSql(downSql);
+
         // Replace Up method with SQL
         var upSqlContent = $@"        migrationBuilder.Sql(@""
 {upSql.Replace("\"", "\"\"")}        "");";
