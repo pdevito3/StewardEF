@@ -19,7 +19,7 @@
         <RepositoryType>git</RepositoryType>
         <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <Version>0.5.0-preview.1</Version>
+        <Version>0.5.0-preview.2</Version>
     </PropertyGroup>
 
     <ItemGroup>
