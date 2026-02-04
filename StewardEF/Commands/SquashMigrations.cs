@@ -573,11 +573,11 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
     {
         // EF migration format: YYYYMMDDHHMMSS_MigrationName
         // The timestamp is always 14 digits followed by underscore
-        // Migration name can contain underscores (e.g., Add_User_Table)
+        // Migration name can contain underscores (e.g., Add_User_Table) or spaces (e.g., Add User Table)
         var match = Regex.Match(migrationFileName, @"^\d{14}_(.+)$");
         if (match.Success)
         {
-            return match.Groups[1].Value;
+            return Regex.Replace(match.Groups[1].Value, @"[^\w]", "");
         }
 
         // Fallback to old behavior if format doesn't match
