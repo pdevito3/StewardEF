@@ -29,7 +29,7 @@ Squashes EF migrations into the first migration in the specified directory.
 #### **Usage:**
 
 ```bash
-steward squash path/to/migrations [-y year] [-t migration-name]
+steward squash path/to/migrations [-y year] [-t migration-name] [-p project-path] [-s startup-project-path] [-c db-context] [--configuration build-config]
 ```
 
 ##### Options
@@ -38,6 +38,10 @@ steward squash path/to/migrations [-y year] [-t migration-name]
 - `-y|--year`: Optional. Specify the year up to which migrations should be squashed. If omitted, all migrations will be squashed.
 - `-t|--target`: Optional. Specify the target migration name (without .cs extension) up to which migrations should be squashed. Since EF Core migrations follow the pattern `YYYYMMDDHHMMSS_MigrationName.cs`, you can specify either the full name (e.g. "20230615000000_AddUserTable") or just part of it (e.g. "AddUserTable"). The matching is case-insensitive. If omitted, all migrations will be squashed.
 - `--skip-sql`: Optional. Skip automatic SQL conversion even if problematic rename operations are detected. A warning will be shown if rename-then-drop patterns are found. Use this if you want to keep the C# code format and handle any issues manually.
+- `-p|--project`: Optional. Explicit path to the migrations project `.csproj` used when automatic SQL conversion runs.
+- `-s|--startup-project`: Optional. Explicit path to the startup project `.csproj` used by `dotnet ef` during automatic SQL conversion.
+- `-c|--context`: Optional. Explicit DbContext name to use during automatic SQL conversion. Useful when the startup project exposes multiple contexts.
+- `--configuration`: Optional. Build configuration to use with `dotnet ef` during automatic SQL conversion, such as `Debug` or `Release`.
 
 ##### Examples
 
@@ -56,6 +60,13 @@ steward squash path/to/migrations -t AddUserTable
 
 # Squash migrations but skip SQL conversion (keep C# format)
 steward squash path/to/migrations --skip-sql
+
+# Squash migrations using an explicit startup project and DbContext for SQL conversion
+steward squash path/to/migrations \
+  -p path/to/MyProject.csproj \
+  -s path/to/MyWeb.csproj \
+  -c AppDbContext \
+  --configuration Release
 ```
 
 #### **How It Works**
@@ -96,8 +107,8 @@ Found project: MyApp.csproj
 The tool automatically:
 1. Squashes migrations normally using C# code concatenation
 2. Checks for rename-then-drop patterns (e.g., `RenameColumn` → `DropColumn` for the same column)
-3. If found, locates your `.csproj` file (searches up the directory tree)
-4. Generates SQL scripts using `dotnet ef migrations script 0 <migration-id>`
+3. If found, locates your `.csproj` file (searches up the directory tree unless `--project` is supplied)
+4. Generates SQL scripts using `dotnet ef migrations script 0 <migration-id>`, optionally forwarding `--startup-project`, `--context`, and `--configuration`
 5. Replaces the squashed migration content with `migrationBuilder.Sql()` calls containing the generated SQL
 
 **Skipping SQL Conversion**
@@ -134,13 +145,16 @@ Converts an existing migration to use SQL scripts instead of C# code. This is us
 #### **Usage:**
 
 ```bash
-steward convert-to-sql path/to/migrations [-p project-path] [-m migration-name]
+steward convert-to-sql path/to/migrations [-p project-path] [-s startup-project-path] [-c db-context] [--configuration build-config] [-m migration-name]
 ```
 
 ##### Options
 
 - `[MigrationsDirectory]`: Path to the directory containing your EF migrations. If omitted, you'll be prompted to enter it interactively.
 - `-p|--project`: Optional. Explicit path to your `.csproj` file. If omitted, the tool will search up the directory tree.
+- `-s|--startup-project`: Optional. Explicit path to the startup project `.csproj` used by `dotnet ef`.
+- `-c|--context`: Optional. Explicit DbContext name to use. Useful when the startup project exposes multiple contexts.
+- `--configuration`: Optional. Build configuration to use with `dotnet ef`, such as `Debug` or `Release`.
 - `-m|--migration`: Optional. Name of the specific migration to convert (without .cs extension). If omitted, converts the most recent migration.
 
 ##### Examples
@@ -155,6 +169,13 @@ steward convert-to-sql path/to/migrations -p path/to/MyProject.csproj
 # Convert a specific migration
 steward convert-to-sql path/to/migrations -m AddUserTable
 steward convert-to-sql path/to/migrations -m 20231201000000_AddUserTable
+
+# Convert using an explicit startup project and DbContext
+steward convert-to-sql path/to/migrations \
+  -p path/to/MyProject.csproj \
+  -s path/to/MyWeb.csproj \
+  -c AppDbContext \
+  --configuration Release
 ```
 
 #### **How It Works**
@@ -163,7 +184,7 @@ The convert-to-sql command:
 
 1. Locates the specified migration (or most recent if not specified)
 2. Finds the associated `.Designer.cs` file to extract the migration ID
-3. Uses `dotnet ef migrations script` to generate SQL for the Up and Down methods
+3. Uses `dotnet ef migrations script` to generate SQL for the Up and Down methods, optionally forwarding `--startup-project`, `--context`, and `--configuration`
 4. Sanitizes the SQL (removes transaction and EF history statements that conflict with EF Core's runtime)
 5. Replaces the migration's C# code with `migrationBuilder.Sql()` calls containing the generated SQL
 

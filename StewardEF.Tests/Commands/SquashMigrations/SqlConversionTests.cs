@@ -1024,9 +1024,9 @@ COMMIT;";
         result.ShouldNotContain("INSERT INTO");
         result.ShouldNotContain("__EFMigrationsHistory");
 
-        // These should all be preserved
-        result.ShouldContain("DO $EF$");
-        result.ShouldContain("CREATE SCHEMA my_schema");
+        // The PostgreSQL schema preamble should be removed, but schema objects should remain
+        result.ShouldNotContain("DO $EF$");
+        result.ShouldNotContain("CREATE SCHEMA my_schema");
         result.ShouldContain("CREATE TABLE my_schema.users");
         result.ShouldContain("CREATE INDEX ix_users_email");
     }

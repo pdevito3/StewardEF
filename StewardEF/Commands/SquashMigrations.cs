@@ -3,7 +3,6 @@ namespace StewardEF.Commands;
 using Spectre.Console;
 using Spectre.Console.Cli;
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -23,6 +22,22 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
         [CommandOption("--skip-sql")]
         [Description("Skip automatic SQL conversion for migrations with rename operations")]
         public bool SkipSqlConversion { get; set; }
+
+        [CommandOption("-p|--project")]
+        [Description("Explicit path to the target migrations project (.csproj) used for automatic SQL conversion")]
+        public string? ProjectPath { get; set; }
+
+        [CommandOption("-s|--startup-project")]
+        [Description("Explicit path to the startup project (.csproj) used by dotnet ef during automatic SQL conversion")]
+        public string? StartupProjectPath { get; set; }
+
+        [CommandOption("-c|--context")]
+        [Description("Explicit DbContext name to use during automatic SQL conversion")]
+        public string? DbContextName { get; set; }
+
+        [CommandOption("--configuration")]
+        [Description("Build configuration to use with dotnet ef during automatic SQL conversion")]
+        public string? Configuration { get; set; }
     }
 
     public override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
@@ -42,11 +57,27 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
             return 1;
         }
 
-        SquashMigrations(directory, settings.Year, settings.TargetMigration, settings.SkipSqlConversion);
+        SquashMigrations(
+            directory,
+            settings.Year,
+            settings.TargetMigration,
+            settings.SkipSqlConversion,
+            settings.ProjectPath,
+            settings.StartupProjectPath,
+            settings.DbContextName,
+            settings.Configuration);
         return 0;
     }
 
-    static void SquashMigrations(string directory, int? year, string? targetMigration, bool skipSqlConversion)
+    static void SquashMigrations(
+        string directory,
+        int? year,
+        string? targetMigration,
+        bool skipSqlConversion,
+        string? projectPath,
+        string? startupProjectPath,
+        string? dbContextName,
+        string? configuration)
     {
         // Get all .cs files including Designer.cs files
         var files = Directory.GetFiles(directory, "*.cs", SearchOption.TopDirectoryOnly)
@@ -149,17 +180,18 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
             AnsiConsole.MarkupLine("[yellow]Converting to SQL script format...[/]");
 
             // Try to find the project file
-            var projectPath = FindProjectFile(directory);
-            if (projectPath != null)
+            var projectFile = EfMigrationTooling.FindProjectFile(directory, projectPath);
+            if (projectFile != null)
             {
-                AnsiConsole.MarkupLine($"[dim]Found project: {Path.GetFileName(projectPath)}[/]");
+                AnsiConsole.MarkupLine($"[dim]Found project: {Path.GetFileName(projectFile)}[/]");
 
                 // Generate SQL from the squashed migration
-                var migrationId = ExtractMigrationId(newDesignerFileName);
+                var migrationId = EfMigrationTooling.ExtractMigrationId(newDesignerFileName);
                 if (migrationId != null)
                 {
-                    var upSql = ExecuteEfScript("0", migrationId, projectPath);
-                    var downSql = ExecuteEfScript(migrationId, "0", projectPath);
+                    var options = new EfScriptOptions(projectFile, startupProjectPath, dbContextName, configuration);
+                    var (upSql, upError) = EfMigrationTooling.ExecuteEfScript("0", migrationId, options);
+                    var (downSql, downError) = EfMigrationTooling.ExecuteEfScript(migrationId, "0", options);
 
                     if (upSql != null && downSql != null)
                     {
@@ -169,6 +201,14 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
                     else
                     {
                         AnsiConsole.MarkupLine("[yellow]⚠ Failed to generate SQL scripts[/]");
+                        if (!string.IsNullOrWhiteSpace(upError))
+                        {
+                            EfMigrationTooling.WriteEfScriptError(upError);
+                        }
+                        else if (!string.IsNullOrWhiteSpace(downError))
+                        {
+                            EfMigrationTooling.WriteEfScriptError(downError);
+                        }
                         AnsiConsole.MarkupLine("[yellow]Squashed migration kept in C# format (may have issues on fresh database)[/]");
                     }
                 }
@@ -793,94 +833,12 @@ internal class SquashMigrationsCommand : Command<SquashMigrationsCommand.Setting
 
     internal static string? FindProjectFile(string migrationsDirectory, string? explicitProjectPath = null)
     {
-        // If explicitly provided, validate and return
-        if (!string.IsNullOrWhiteSpace(explicitProjectPath))
-        {
-            if (File.Exists(explicitProjectPath) && explicitProjectPath.EndsWith(".csproj"))
-            {
-                return Path.GetFullPath(explicitProjectPath);
-            }
-            AnsiConsole.MarkupLine($"[yellow]Warning: Specified project file not found: {explicitProjectPath}[/]");
-        }
-
-        // Search up the directory tree for a .csproj file
-        var currentDir = new DirectoryInfo(Path.GetFullPath(migrationsDirectory));
-
-        while (currentDir != null)
-        {
-            var projectFiles = currentDir.GetFiles("*.csproj");
-            if (projectFiles.Length > 0)
-            {
-                // If multiple .csproj files, try to pick the most likely one
-                var projectFile = projectFiles.Length == 1
-                    ? projectFiles[0]
-                    : projectFiles.FirstOrDefault(f => !f.Name.Contains(".Tests")) ?? projectFiles[0];
-
-                return projectFile.FullName;
-            }
-
-            currentDir = currentDir.Parent;
-        }
-
-        return null;
+        return EfMigrationTooling.FindProjectFile(migrationsDirectory, explicitProjectPath);
     }
 
     internal static string? ExtractMigrationId(string designerFilePath)
     {
-        if (!File.Exists(designerFilePath))
-            return null;
-
-        var content = File.ReadAllText(designerFilePath);
-
-        // Extract migration ID from [Migration("20231201123456_MigrationName")] attribute
-        // Allow optional whitespace around the string parameter
-        var match = Regex.Match(content, @"\[Migration\(\s*""([^""]+)""\s*\)\]");
-        if (match.Success)
-        {
-            return match.Groups[1].Value;
-        }
-
-        return null;
-    }
-
-    private static string? ExecuteEfScript(string fromMigration, string toMigration, string projectPath)
-    {
-        try
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "dotnet",
-                Arguments = $"ef migrations script {fromMigration} {toMigration} --project \"{projectPath}\" --no-build",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(startInfo);
-            if (process == null)
-            {
-                AnsiConsole.MarkupLine("[red]Failed to start dotnet ef process[/]");
-                return null;
-            }
-
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0)
-            {
-                AnsiConsole.MarkupLine($"[red]dotnet ef script failed: {error}[/]");
-                return null;
-            }
-
-            return output;
-        }
-        catch (Exception ex)
-        {
-            AnsiConsole.MarkupLine($"[red]Error executing dotnet ef: {ex.Message}[/]");
-            return null;
-        }
+        return EfMigrationTooling.ExtractMigrationId(designerFilePath);
     }
 
     private static void ReplaceWithSqlScript(string migrationFilePath, string upSql, string downSql)
